@@ -1,0 +1,106 @@
+Supermarket Customer Segmentation with Financial Analysis
+
+# Step 1: Import Libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+
+# Step 2: Load Dataset
+df = pd.read_csv("supermarket_sales.csv")   # change filename if needed
+print(df.head())
+
+# Step 3: Data Cleaning
+df['Date'] = pd.to_datetime(df['Date'])
+df['Month'] = df['Date'].dt.month
+df['Day'] = df['Date'].dt.day
+df['Hour'] = pd.to_datetime(df['Time']).dt.hour
+
+# Step 4: Feature Engineering
+# Spend per category (Product Line)
+category_spend = df.pivot_table(
+    index="Invoice ID",
+    columns="Product line",
+    values="Total",
+    aggfunc="sum",
+    fill_value=0
+)
+
+# Customer-level features
+customer_features = df.groupby("Invoice ID").agg({
+    "Total": "sum",
+    "Quantity": "sum",
+    "gross income": "sum",
+    "Rating": "mean"
+}).rename(columns={
+    "Total": "TotalSpend",
+    "Quantity": "TotalQty",
+    "gross income": "TotalProfit",
+    "Rating": "AvgRating"
+})
+
+# Merge category features
+data = pd.concat([customer_features, category_spend], axis=1)
+
+# Step 5: Standardize Data
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(data)
+
+# Step 6: K-Means Clustering
+kmeans = KMeans(n_clusters=3, random_state=42)
+data['Cluster'] = kmeans.fit_predict(X_scaled)
+
+# Step 7: PCA for Visualization
+pca = PCA(n_components=2)
+pca_components = pca.fit_transform(X_scaled)
+data['PC1'] = pca_components[:,0]
+data['PC2'] = pca_components[:,1]
+
+plt.figure(figsize=(8,6))
+sns.scatterplot(x="PC1", y="PC2", hue="Cluster", data=data, palette="Set2")
+plt.title("Customer Segmentation (PCA projection)")
+plt.show()
+
+# Step 8: Financial Equation Analysis
+# y = m * x(t) - c
+# We'll assign dummy m and c values per cluster
+
+cluster_summary = data.groupby("Cluster").agg({
+    "TotalSpend":"mean",
+    "TotalQty":"mean",
+    "TotalProfit":"mean"
+}).reset_index()
+
+# Assign average price per unit (m) & costs (c) per cluster
+m_values = {0:200, 1:50, 2:120}    # dummy
+c_values = {0:50000, 1:30000, 2:200000}  # dummy
+
+profits = []
+for i,row in cluster_summary.iterrows():
+    cluster = row['Cluster']
+    x = row['TotalQty']  # units sold
+    m = m_values[cluster]
+    c = c_values[cluster]
+    y = (m * x) - c
+    profits.append(y)
+
+cluster_summary['EstimatedProfit'] = profits
+
+print("\nCluster Financial Summary:")
+print(cluster_summary)
+
+# Step 9: Profit Visualization
+plt.figure(figsize=(8,5))
+sns.barplot(x="Cluster", y="EstimatedProfit", data=cluster_summary, palette="coolwarm")
+plt.title("Profit by Customer Segment")
+plt.ylabel("Profit (y)")
+plt.show()
+
+# Step 10: Insights
+for i,row in cluster_summary.iterrows():
+    print(f"Cluster {int(row['Cluster'])}: Avg Spend = {row['TotalSpend']:.2f}, "
+          f"Units = {row['TotalQty']:.2f}, Profit = {row['EstimatedProfit']:.2f}")
